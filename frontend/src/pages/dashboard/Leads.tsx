@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { CSVLink } from "react-csv";
 import api from "../../api/axios";
@@ -33,6 +33,8 @@ const Leads = () => {
   const [showModal, setShowModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [importLoading, setImportLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useAuth();
 
@@ -71,6 +73,40 @@ const Leads = () => {
       fetchLeads();
     } catch {
       alert("Failed to delete lead");
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportLoading(true);
+
+      const formData = new FormData();
+
+      formData.append("file", file);
+
+      const response = await api.post("/leads/import", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      alert(
+        `Imported ${response.data.summary.imported} leads\n\nDuplicates: ${response.data.summary.duplicates}\nFailed: ${response.data.summary.failed}`,
+      );
+
+      fetchLeads();
+    } catch (error: any) {
+      alert(error.response?.data?.message ?? "Import failed");
+    } finally {
+      setImportLoading(false);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -356,6 +392,47 @@ const Leads = () => {
                 Export CSV
               </CSVLink>
             </div>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition disabled:opacity-50"
+            >
+              {importLoading ? (
+                <>
+                  <svg
+                    className="h-4 w-4 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      className="opacity-25"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      className="opacity-75"
+                    />
+                  </svg>
+                  Importing...
+                </>
+              ) : (
+                <>📥 Import CSV</>
+              )}
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              hidden
+              onChange={handleImport}
+            />
 
             {/* Search */}
             <div className="relative w-full sm:w-72">

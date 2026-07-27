@@ -1,4 +1,6 @@
 import { Request, Response } from "express";
+import csv from "csv-parser";
+import { Readable } from "stream";
 
 import Lead from "../models/Lead.model";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -20,6 +22,97 @@ export const createLead = async (
     res.status(500).json({
       success: false,
       message: "Failed to create lead",
+    });
+  }
+};
+
+export const importLeads = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        message: "Please upload a CSV file",
+      });
+      return;
+    }
+
+    const rows: any[] = [];
+
+    const stream = Readable.from(req.file.buffer);
+
+    stream
+      .pipe(csv())
+      .on("data", (data) => rows.push(data))
+      .on("end", async () => {
+        let imported = 0;
+        let duplicates = 0;
+        let failed = 0;
+
+        const leadsToInsert: any[] = [];
+
+        for (const row of rows) {
+          const name = row.name?.trim();
+          const email = row.email?.trim();
+          const status = row.status?.trim();
+          const source = row.source?.trim();
+
+          // Required fields
+          if (!name || !email || !status || !source) {
+            failed++;
+            continue;
+          }
+
+          // Email validation
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+          if (!emailRegex.test(email)) {
+            failed++;
+            continue;
+          }
+
+          // Duplicate email
+          const exists = await Lead.findOne({ email });
+
+          if (exists) {
+            duplicates++;
+            continue;
+          }
+
+          leadsToInsert.push({
+            name,
+            email,
+            status,
+            source,
+          });
+        }
+
+        if (leadsToInsert.length > 0) {
+          await Lead.insertMany(leadsToInsert);
+
+          imported = leadsToInsert.length;
+        }
+
+        res.status(200).json({
+          success: true,
+          message: "CSV imported successfully",
+
+          summary: {
+            totalRows: rows.length,
+            imported,
+            duplicates,
+            failed,
+          },
+        });
+      });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to import CSV",
     });
   }
 };

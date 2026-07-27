@@ -12,6 +12,8 @@ import { protect } from "../middleware/auth.middleware";
 
 import { authorizeRoles } from "../middleware/role.middleware";
 import { validateLead } from "../middleware/validate.middleware";
+import { upload } from "../middleware/upload.middleware";
+import { importLeads } from "../controllers/lead.controller";
 
 const router = express.Router();
 
@@ -24,6 +26,14 @@ router.post(
 );
 
 router.get("/", protect, authorizeRoles("admin", "sales"), getLeads);
+
+router.post(
+  "/import",
+  protect,
+  authorizeRoles("admin"),
+  upload.single("file"),
+  importLeads,
+);
 
 router.get("/:id", protect, authorizeRoles("admin", "sales"), getLeadById);
 
