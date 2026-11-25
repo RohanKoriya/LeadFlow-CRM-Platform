@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import api from "../../api/axios";
 
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 import type { LoginResponse } from "../../types/api.types";
 import axios from "axios";
@@ -12,7 +12,7 @@ import axios from "axios";
 const Login = () => {
   const navigate = useNavigate();
 
-  const { login } = useAuth();
+  const { login, token } = useAuth();
 
   const [email, setEmail] = useState("");
 
@@ -58,6 +58,17 @@ const Login = () => {
 
   return (
     <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center px-4 relative overflow-hidden">
+      <header className="absolute inset-x-0 top-0 z-10">
+        <nav className="mx-auto flex h-16 max-w-5xl items-center justify-end px-4 sm:px-6">
+          <Link
+            to={token ? "/dashboard" : "/"}
+            className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-900"
+          >
+            {token ? "Back to dashboard" : "Back to home"}
+          </Link>
+        </nav>
+      </header>
+
       {/* Subtle dot-grid background */}
       <div
         className="absolute inset-0 opacity-[0.035]"

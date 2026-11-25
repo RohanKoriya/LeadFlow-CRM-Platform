@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 
 import Leads from "./Leads";
 
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const Dashboard = () => {
   const navigate = useNavigate();

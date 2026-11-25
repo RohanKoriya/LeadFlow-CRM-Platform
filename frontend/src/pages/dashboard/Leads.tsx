@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { useAuth } from "../../context/AuthContext";
+import axios from "axios";
+import { useAuth } from "../../context/useAuth";
 import { CSVLink } from "react-csv";
 import api from "../../api/axios";
 import type { Lead, LeadsResponse } from "../../types/lead.types";
@@ -22,7 +23,6 @@ const statusStyles: Record<string, string> = {
 
 const Leads = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -35,10 +35,26 @@ const Leads = () => {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [completedRequestKey, setCompletedRequestKey] = useState<string | null>(
+    null,
+  );
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const { user } = useAuth();
 
+  const leadsQuery = new URLSearchParams({
+    search: debouncedSearch,
+    status,
+    source,
+    sort,
+    page: String(currentPage),
+  }).toString();
+  const requestKey = `${leadsQuery}:${refreshKey}`;
+  const loading = completedRequestKey !== requestKey;
+
   const hasActiveFilters = search !== "" || status !== "" || source !== "";
+
+  const refreshLeads = () => setRefreshKey((key) => key + 1);
 
   const clearFilters = () => {
     setSearch("");
@@ -48,21 +64,6 @@ const Leads = () => {
     setCurrentPage(1);
   };
 
-  const fetchLeads = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get<LeadsResponse>(
-        `/leads?search=${debouncedSearch}&status=${status}&source=${source}&sort=${sort}&page=${currentPage}`,
-      );
-      setLeads(response.data.data);
-      setTotalPages(response.data.pagination.totalPages);
-    } catch {
-      setError("Failed to fetch leads");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const deleteLead = async (id: string): Promise<void> => {
     const confirmed = window.confirm(
       "Are you sure you want to delete this lead?",
@@ -70,7 +71,7 @@ const Leads = () => {
     if (!confirmed) return;
     try {
       await api.delete(`/leads/${id}`);
-      fetchLeads();
+      setRefreshKey((key) => key + 1);
     } catch {
       alert("Failed to delete lead");
     }
@@ -98,9 +99,13 @@ const Leads = () => {
         `Imported ${response.data.summary.imported} leads\n\nDuplicates: ${response.data.summary.duplicates}\nFailed: ${response.data.summary.failed}`,
       );
 
-      fetchLeads();
-    } catch (error: any) {
-      alert(error.response?.data?.message ?? "Import failed");
+      setRefreshKey((key) => key + 1);
+    } catch (error: unknown) {
+      if (axios.isAxiosError<{ message?: string }>(error)) {
+        alert(error.response?.data?.message ?? "Import failed");
+      } else {
+        alert("Import failed");
+      }
     } finally {
       setImportLoading(false);
 
@@ -116,12 +121,33 @@ const Leads = () => {
   }, [search]);
 
   useEffect(() => {
-    fetchLeads();
-  }, [debouncedSearch, status, source, sort, currentPage]);
+    let isCurrentRequest = true;
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [debouncedSearch, status, source, sort]);
+    const loadLeads = async (): Promise<void> => {
+      try {
+        const response = await api.get<LeadsResponse>(`/leads?${leadsQuery}`);
+        if (!isCurrentRequest) return;
+
+        setLeads(response.data.data);
+        setTotalPages(response.data.pagination.totalPages);
+        setError("");
+      } catch {
+        if (isCurrentRequest) {
+          setError("Failed to fetch leads");
+        }
+      } finally {
+        if (isCurrentRequest) {
+          setCompletedRequestKey(requestKey);
+        }
+      }
+    };
+
+    void loadLeads();
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [leadsQuery, requestKey]);
 
   const totalLeads = leads.length;
   const qualifiedLeads = leads.filter((l) => l.status === "Qualified").length;
@@ -258,7 +284,7 @@ const Leads = () => {
         </svg>
         <p className="text-sm text-red-600">{error}</p>
         <button
-          onClick={fetchLeads}
+          onClick={refreshLeads}
           className="ml-auto text-xs font-medium text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
         >
           Retry
@@ -453,7 +479,10 @@ const Leads = () => {
                 type="text"
                 placeholder="Search name or email…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="w-full border border-zinc-200 rounded-lg pl-9 pr-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-1 transition-shadow bg-white"
               />
             </div>
@@ -464,8 +493,10 @@ const Leads = () => {
             {[
               {
                 value: status,
-                onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
-                  setStatus(e.target.value),
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
+                  setStatus(e.target.value);
+                  setCurrentPage(1);
+                },
                 options: [
                   { value: "", label: "All Status" },
                   { value: "New", label: "New" },
@@ -476,8 +507,10 @@ const Leads = () => {
               },
               {
                 value: source,
-                onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
-                  setSource(e.target.value),
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
+                  setSource(e.target.value);
+                  setCurrentPage(1);
+                },
                 options: [
                   { value: "", label: "All Sources" },
                   { value: "Website", label: "Website" },
@@ -487,8 +520,10 @@ const Leads = () => {
               },
               {
                 value: sort,
-                onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
-                  setSort(e.target.value),
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
+                  setSort(e.target.value);
+                  setCurrentPage(1);
+                },
                 options: [
                   { value: "latest", label: "Latest first" },
                   { value: "oldest", label: "Oldest first" },
@@ -772,7 +807,7 @@ const Leads = () => {
       {showModal && (
         <CreateLeadModal
           onClose={() => setShowModal(false)}
-          onLeadCreated={fetchLeads}
+          onLeadCreated={refreshLeads}
         />
       )}
       {selectedLead && (
@@ -780,7 +815,7 @@ const Leads = () => {
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onLeadUpdated={() => {
-            fetchLeads();
+            refreshLeads();
             setSelectedLead(null);
           }}
         />
